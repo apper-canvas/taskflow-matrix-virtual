@@ -1,7 +1,51 @@
-import * as Icons from 'lucide-react';
+import {
+  Menu,
+  X,
+  Sun,
+  Moon,
+  CheckSquare,
+  ListTodo,
+  Calendar,
+  Tag,
+  Folder,
+  BarChart,
+  Settings,
+  Plus,
+  Check,
+  Edit,
+  Trash,
+  Search,
+  ClipboardList,
+  LayoutGrid,
+  Filter,
+  Star,
+  Clock
+} from 'lucide-react';
 
-export const getIcon = (iconName) => {
-  return (Icons[iconName] && typeof Icons[iconName] === 'function') 
-    ? Icons[iconName] 
-    : Icons.Smile;
+const icons = {
+  Menu,
+  X,
+  Sun,
+  Moon,
+  CheckSquare,
+  ListTodo,
+  Calendar,
+  Tag,
+  Folder,
+  BarChart,
+  Settings,
+  Plus,
+  Check,
+  Edit,
+  Trash,
+  Search,
+  ClipboardList,
+  LayoutGrid,
+  Filter,
+  Star,
+  Clock
 };
+
+export function getIcon(name) {
+  return icons[name] || null;
+}

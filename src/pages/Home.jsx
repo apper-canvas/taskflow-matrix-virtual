@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'react-toastify';
+import { useSelector } from 'react-redux';
 import MainFeature from '../components/MainFeature';
+import { AuthContext } from '../App';
 import { getIcon } from '../utils/iconUtils';
 
 const Home = ({ darkMode, setDarkMode }) => {
@@ -20,6 +22,13 @@ const Home = ({ darkMode, setDarkMode }) => {
   const ChartIcon = getIcon('BarChart');
   const SettingsIcon = getIcon('Settings');
   
+  // Auth context & state
+  const { logout } = useContext(AuthContext);
+  const { user, isAuthenticated } = useSelector((state) => state.user);
+  
+  // Redirect if not authenticated
+  useEffect(() => {
+  }, [isAuthenticated]);
   const handleToggleDarkMode = () => {
     setDarkMode(!darkMode);
     toast.info(`${!darkMode ? 'Dark' : 'Light'} mode activated`, {
@@ -38,6 +47,15 @@ const Home = ({ darkMode, setDarkMode }) => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      toast.error('Logout failed');
+    }
+  };
   
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
@@ -163,6 +181,21 @@ const Home = ({ darkMode, setDarkMode }) => {
               <span>Settings</span>
             </a>
           </nav>
+            
+            {isAuthenticated && user && (
+              <div className="mt-6 border-t border-gray-200 pt-4 dark:border-gray-700">
+                <div className="flex items-center px-3 py-2">
+                  <div className="flex-shrink-0">
+                    <div className="h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center">
+                      {user.firstName?.charAt(0) || user.emailAddress?.charAt(0) || 'U'}
+                    </div>
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm font-medium">{user.firstName || user.emailAddress}</p>
+                  </div>
+                </div>
+              </div>
+            )}
           
           <div className="border-t border-gray-200 p-4 dark:border-gray-800">
             <button
@@ -181,6 +214,20 @@ const Home = ({ darkMode, setDarkMode }) => {
                 </>
               )}
             </button>
+            
+            {isAuthenticated && (
+              <button
+                onClick={handleLogout}
+                className="mt-2 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                <span>
+                  Logout
+                </span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -190,6 +237,11 @@ const Home = ({ darkMode, setDarkMode }) => {
         <div className="container mx-auto px-4 py-8">
           <div className="mb-6 hidden md:flex md:items-center md:justify-between">
             <h1 className="text-2xl font-bold md:text-3xl">My Tasks</h1>
+            
+            {isAuthenticated && user && (
+              <p className="text-gray-600 dark:text-gray-400">Welcome, {user.firstName || user.emailAddress}</p>
+            )}
+            
             <button
               onClick={handleToggleDarkMode}
               className="md:inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
