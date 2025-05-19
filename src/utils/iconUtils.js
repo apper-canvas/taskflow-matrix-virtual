@@ -1,51 +1,31 @@
-import {
-  Menu,
-  X,
-  Sun,
-  Moon,
-  CheckSquare,
-  ListTodo,
-  Calendar,
-  Tag,
-  Folder,
-  BarChart,
-  Settings,
-  Plus,
-  Check,
-  Edit,
-  Trash,
-  Search,
-  ClipboardList,
-  LayoutGrid,
-  Filter,
-  Star,
-  Clock
-} from 'lucide-react';
+import * as LucideIcons from 'lucide-react';
 
-const icons = {
-  Menu,
-  X,
-  Sun,
-  Moon,
-  CheckSquare,
-  ListTodo,
-  Calendar,
-  Tag,
-  Folder,
-  BarChart,
-  Settings,
-  Plus,
-  Check,
-  Edit,
-  Trash,
-  Search,
-  ClipboardList,
-  LayoutGrid,
-  Filter,
-  Star,
-  Clock
+/**
+ * Utility function to get a Lucide React icon component by name
+ * @param {string} iconName - The name of the icon
+ * @returns {React.ComponentType} - The icon component
+ */
+export const getIcon = (iconName) => {
+  // If the icon name is found in Lucide Icons, return it
+  if (LucideIcons[iconName]) {
+    return LucideIcons[iconName];
+  }
+  
+  // Map of custom icon names that don't match exactly with Lucide names
+  const iconMap = {
+    // Add any custom mappings here if needed
+    Menu: LucideIcons.Menu,
+    X: LucideIcons.X,
+    CheckSquare: LucideIcons.CheckSquare,
+    ListTodo: LucideIcons.ListTodo,
+    Search: LucideIcons.Search,
+    Filter: LucideIcons.Filter,
+    Plus: LucideIcons.Plus,
+    ClipboardList: LucideIcons.ClipboardList,
+    LayoutGrid: LucideIcons.LayoutGrid,
+    Calendar: LucideIcons.Calendar
+  };
+  
+  // Return the mapped icon or a default icon if not found
+  return iconMap[iconName] || LucideIcons.HelpCircle;
 };
-
-export function getIcon(name) {
-  return icons[name] || null;
-}

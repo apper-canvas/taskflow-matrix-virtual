@@ -1,344 +1,235 @@
 import { useState, useEffect } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useDispatch, useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
+import { format } from 'date-fns';
 import { getIcon } from '../utils/iconUtils';
-import { setTasks, setLoading, setError } from '../store/taskSlice';
 import { fetchTasks, updateTask, deleteTask } from '../services/taskService';
+import { setTasks, setLoading, setError } from '../store/taskSlice';
 
 const KanbanBoard = ({ openTaskForm, filter }) => {
   const dispatch = useDispatch();
-  const { tasks, loading, error } = useSelector((state) => state.tasks);
-  const { isAuthenticated } = useSelector((state) => state.user);
+  const { tasks, loading } = useSelector((state) => state.tasks);
+  const [deletingTaskId, setDeletingTaskId] = useState(null);
+  const [movingTaskId, setMovingTaskId] = useState(null);
 
   // Icons
-  const CheckIcon = getIcon('Check');
-  const EditIcon = getIcon('Edit');
+  const PencilIcon = getIcon('Pencil');
   const TrashIcon = getIcon('Trash');
   const CalendarIcon = getIcon('Calendar');
+  const AlertCircleIcon = getIcon('AlertCircle');
   const TagIcon = getIcon('Tag');
-  const StarIcon = getIcon('Star');
 
-  // Load tasks
+  // Fetch tasks
   useEffect(() => {
     const loadTasks = async () => {
-      if (!isAuthenticated) return;
-      
       try {
         dispatch(setLoading(true));
         const tasksData = await fetchTasks(filter);
         dispatch(setTasks(tasksData));
       } catch (error) {
-        console.error("Failed to load tasks:", error);
-        dispatch(setError(error.message || "Failed to load tasks"));
-        toast.error("Failed to load tasks: " + (error.message || "Unknown error"));
+        dispatch(setError(error.message));
+        toast.error(`Failed to load tasks: ${error.message}`);
+      } finally {
+        dispatch(setLoading(false));
       }
     };
-    
+
     loadTasks();
-  }, [dispatch, isAuthenticated, filter]);
+  }, [dispatch, filter]);
 
-  // Function to get tasks by status
-  const getTasksByStatus = (status) => {
-    return tasks.filter(task => task.status === status);
-  };
+  // Group tasks by status
+  const todoTasks = tasks.filter(task => task.status === 'todo');
+  const inProgressTasks = tasks.filter(task => task.status === 'in-progress');
+  const completedTasks = tasks.filter(task => task.status === 'completed');
 
-  // Function to update task status
-  const handleUpdateTaskStatus = async (taskId, newStatus) => {
-    try {
-      const taskToUpdate = tasks.find(t => t.Id === taskId);
-      if (!taskToUpdate) return;
-      
-      const updatedTask = await updateTask(taskId, { ...taskToUpdate, status: newStatus });
-      
-      // Update local state with the result
-      const updatedTasks = tasks.map(task => 
-        task.Id === taskId ? updatedTask : task
-      );
-      
-      dispatch(setTasks(updatedTasks));
-      toast.success(`Task moved to ${newStatus.replace('-', ' ')}`);
-    } catch (error) {
-      toast.error("Failed to update task: " + (error.message || "Unknown error"));
-    }
-  };
-
-  // Function to delete a task
+  // Handle task deletion
   const handleDeleteTask = async (taskId) => {
     try {
+      setDeletingTaskId(taskId);
       await deleteTask(taskId);
-      
-      // Update local state
-      const filteredTasks = tasks.filter(task => task.Id !== taskId);
-      dispatch(setTasks(filteredTasks));
-      toast.success("Task deleted successfully");
+      dispatch(setTasks(tasks.filter(task => task.Id !== taskId)));
+      toast.success('Task deleted successfully');
     } catch (error) {
-      toast.error("Failed to delete task: " + (error.message || "Unknown error"));
+      toast.error(`Failed to delete task: ${error.message}`);
+    } finally {
+      setDeletingTaskId(null);
     }
   };
 
-  // Priority color classes
-  const priorityColors = {
-    low: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-    medium: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
-    high: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+  // Handle task status change
+  const handleStatusChange = async (taskId, newStatus) => {
+    const task = tasks.find(t => t.Id === taskId);
+    if (!task) return;
+    
+    try {
+      setMovingTaskId(taskId);
+      const updatedTask = await updateTask(taskId, { ...task, status: newStatus });
+      const updatedTasks = tasks.map(t => t.Id === taskId ? updatedTask : t);
+      dispatch(setTasks(updatedTasks));
+      toast.success('Task updated successfully');
+    } catch (error) {
+      toast.error(`Failed to update task: ${error.message}`);
+    } finally {
+      setMovingTaskId(null);
+    }
   };
 
-  if (loading) {
+  // Render task card
+  const TaskCard = ({ task }) => {
+    const isPriority = task.priority === 'high';
+    const isDeleting = deletingTaskId === task.Id;
+    const isMoving = movingTaskId === task.Id;
+    const formattedDate = task.dueDate ? format(new Date(task.dueDate), 'MMM d, yyyy') : null;
+    
     return (
-      <div className="flex justify-center p-8">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      <div className={`relative mb-3 rounded-lg bg-white p-4 shadow-md dark:bg-gray-800 ${isDeleting || isMoving ? 'opacity-50' : ''}`}>
+        {isPriority && (
+          <div className="absolute -right-1 -top-1 h-4 w-4 rounded-full bg-red-500" />
+        )}
+        <div className="mb-2 flex justify-between">
+          <h3 className="font-medium">{task.title}</h3>
+          <div className="flex space-x-1">
+            <button 
+              onClick={() => openTaskForm(task)}
+              className="rounded p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+              disabled={isDeleting || isMoving}
+            >
+              <PencilIcon className="h-4 w-4" />
+            </button>
+            <button 
+              onClick={() => handleDeleteTask(task.Id)}
+              className="rounded p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+              disabled={isDeleting || isMoving}
+            >
+              <TrashIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">
+          {task.description?.length > 100 
+            ? `${task.description.substring(0, 100)}...` 
+            : task.description}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {task.tags && task.tags.split(',').map((tag, index) => (
+            <span 
+              key={index}
+              className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-800 dark:bg-gray-700 dark:text-gray-200"
+            >
+              <TagIcon className="mr-1 h-3 w-3" />
+              {tag.trim()}
+            </span>
+          ))}
+        </div>
+        <div className="mt-3 flex items-center text-xs text-gray-500 dark:text-gray-400">
+          {formattedDate && (
+            <span className="flex items-center">
+              <CalendarIcon className="mr-1 h-3 w-3" />
+              {formattedDate}
+            </span>
+          )}
+        </div>
       </div>
     );
-  }
-
-  if (error) {
-    return (
-      <div className="p-4 text-center">
-        <p className="text-red-500 dark:text-red-400 mb-4">{error}</p>
-        <button 
-          onClick={() => dispatch(fetchTasks(filter))}
-          className="btn btn-primary"
-        >
-          Try Again
-        </button>
-      </div>
-    );
-  }
+  };
 
   return (
-    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-      {/* To Do Column */}
-      <div className="flex flex-col rounded-xl bg-gray-50 dark:bg-gray-800/50">
-        <div className="border-b border-gray-200 p-4 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">To Do</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{getTasksByStatus('todo').length} tasks</p>
+    <div className="mt-6">
+      {loading && tasks.length === 0 ? (
+        <div className="flex items-center justify-center p-8">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
         </div>
-        
-        <div className="flex-1 overflow-y-auto p-4">
-          <AnimatePresence>
-            {getTasksByStatus('todo').length === 0 ? (
-              <div className="flex h-24 items-center justify-center rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700">
-                <p className="text-sm text-gray-500 dark:text-gray-400">No tasks</p>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {/* TO DO Column */}
+          <div className="rounded-lg bg-gray-50 p-4 dark:bg-gray-850">
+            <h3 className="mb-4 font-medium">To Do ({todoTasks.length})</h3>
+            {todoTasks.length === 0 ? (
+              <div className="flex h-24 items-center justify-center rounded-lg border-2 border-dashed border-gray-200 p-4 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                No tasks to do
               </div>
             ) : (
-              <div className="space-y-3">
-                {getTasksByStatus('todo').map(task => (
-                  <motion.div
-                    key={task.Id}
-                    initial={{ scale: 0.95, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0.95, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="rounded-lg bg-white p-4 shadow-soft dark:bg-gray-800"
-                  >
-                    <div className="mb-2 flex items-start justify-between">
-                      <h4 className="text-md font-medium text-gray-900 dark:text-white">{task.title}</h4>
-                      <div className="flex items-center space-x-1">
-                        <button
-                          onClick={() => openTaskForm(task)}
-                          className="rounded p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-                          aria-label="Edit task"
-                        >
-                          <EditIcon className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteTask(task.Id)}
-                          className="rounded p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-                          aria-label="Delete task"
-                        >
-                          <TrashIcon className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                    
-                    {task.description && (
-                      <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">
-                        {task.description}
-                      </p>
-                    )}
-                    
-                    <div className="mb-3 flex flex-wrap gap-1.5">
-                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                        priorityColors[task.priority]
-                      }`}>
-                        <StarIcon className="mr-1 h-3 w-3" />
-                        {task.priority}
-                      </span>
-                      
-                      {task.dueDate && (
-                        <span className="inline-flex items-center rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300">
-                          <CalendarIcon className="mr-1 h-3 w-3" />
-                          {task.dueDate}
-                        </span>
-                      )}
-                      
-                      {task.tags && typeof task.tags === 'string' && task.tags.split(',').slice(0, 2).map(tag => (
-                        <span 
-                          key={tag} 
-                          className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800 dark:bg-gray-700 dark:text-gray-300"
-                        >
-                          <TagIcon className="mr-1 h-3 w-3" />
-                          {tag.trim()}
-                        </span>
-                      ))}
-                      
-                      {task.tags && Array.isArray(task.tags) && task.tags.slice(0, 2).map(tag => (
-                        <span 
-                          key={tag} 
-                          className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800 dark:bg-gray-700 dark:text-gray-300"
-                        >
-                          <TagIcon className="mr-1 h-3 w-3" />
-                          {tag}
-                        </span>
-                      ))}
-                      
-                      {task.tags && ((typeof task.tags === 'string' && task.tags.split(',').length > 2) || 
-                                    (Array.isArray(task.tags) && task.tags.length > 2)) && (
-                        <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800 dark:bg-gray-700 dark:text-gray-300">
-                          +{typeof task.tags === 'string' ? task.tags.split(',').length - 2 : task.tags.length - 2}
-                        </span>
-                      )}
-                    </div>
-                    
-                    <div className="flex justify-end">
+              <div className="space-y-2">
+                {todoTasks.map(task => (
+                  <div key={task.Id}>
+                    <TaskCard task={task} />
+                    <div className="mt-2 flex justify-end">
                       <button
-                        onClick={() => handleUpdateTaskStatus(task.Id, 'in-progress')}
-                        className="text-xs font-medium text-primary hover:text-primary-dark dark:text-primary-light dark:hover:text-primary"
+                        onClick={() => handleStatusChange(task.Id, 'in-progress')}
+                        className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                        disabled={isMoving}
                       >
-                        Move to In Progress
+                        Move to In Progress →
                       </button>
                     </div>
-                  </motion.div>
+                  </div>
                 ))}
               </div>
             )}
-          </AnimatePresence>
-        </div>
-      </div>
-      
-      {/* In Progress Column */}
-      <div className="flex flex-col rounded-xl bg-gray-50 dark:bg-gray-800/50">
-        <div className="border-b border-gray-200 p-4 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">In Progress</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{getTasksByStatus('in-progress').length} tasks</p>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto p-4">
-          <AnimatePresence>
-            {getTasksByStatus('in-progress').length === 0 ? (
-              <div className="flex h-24 items-center justify-center rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700">
-                <p className="text-sm text-gray-500 dark:text-gray-400">No tasks</p>
+          </div>
+          
+          {/* IN PROGRESS Column */}
+          <div className="rounded-lg bg-gray-50 p-4 dark:bg-gray-850">
+            <h3 className="mb-4 font-medium">In Progress ({inProgressTasks.length})</h3>
+            {inProgressTasks.length === 0 ? (
+              <div className="flex h-24 items-center justify-center rounded-lg border-2 border-dashed border-gray-200 p-4 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                No tasks in progress
               </div>
             ) : (
-              <div className="space-y-3">
-                {getTasksByStatus('in-progress').map(task => (
-                  <motion.div
-                    key={task.Id}
-                    initial={{ scale: 0.95, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0.95, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="rounded-lg bg-white p-4 shadow-soft dark:bg-gray-800"
-                  >
-                    {/* Task content - similar to todo column */}
-                    <div className="mb-2 flex items-start justify-between">
-                      <h4 className="text-md font-medium text-gray-900 dark:text-white">{task.title}</h4>
-                      <div className="flex items-center space-x-1">
-                        <button
-                          onClick={() => openTaskForm(task)}
-                          className="rounded p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-                          aria-label="Edit task"
-                        >
-                          <EditIcon className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteTask(task.Id)}
-                          className="rounded p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-                          aria-label="Delete task"
-                        >
-                          <TrashIcon className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                    
-                    {/* Task actions */}
-                    <div className="flex justify-between">
+              <div className="space-y-2">
+                {inProgressTasks.map(task => (
+                  <div key={task.Id}>
+                    <TaskCard task={task} />
+                    <div className="mt-2 flex justify-between">
                       <button
-                        onClick={() => handleUpdateTaskStatus(task.Id, 'todo')}
-                        className="text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                        onClick={() => handleStatusChange(task.Id, 'todo')}
+                        className="text-xs text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300"
+                        disabled={isMoving}
                       >
-                        Move to To Do
+                        ← Move to To Do
                       </button>
                       <button
-                        onClick={() => handleUpdateTaskStatus(task.Id, 'completed')}
-                        className="text-xs font-medium text-primary hover:text-primary-dark dark:text-primary-light dark:hover:text-primary"
+                        onClick={() => handleStatusChange(task.Id, 'completed')}
+                        className="text-xs text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
+                        disabled={isMoving}
                       >
-                        Mark Completed
+                        Move to Completed →
                       </button>
                     </div>
-                  </motion.div>
+                  </div>
                 ))}
               </div>
             )}
-          </AnimatePresence>
-        </div>
-      </div>
-      
-      {/* Completed Column */}
-      <div className="flex flex-col rounded-xl bg-gray-50 dark:bg-gray-800/50">
-        <div className="border-b border-gray-200 p-4 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Completed</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{getTasksByStatus('completed').length} tasks</p>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto p-4">
-          <AnimatePresence>
-            {getTasksByStatus('completed').length === 0 ? (
-              <div className="flex h-24 items-center justify-center rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700">
-                <p className="text-sm text-gray-500 dark:text-gray-400">No tasks</p>
+          </div>
+          
+          {/* COMPLETED Column */}
+          <div className="rounded-lg bg-gray-50 p-4 dark:bg-gray-850">
+            <h3 className="mb-4 font-medium">Completed ({completedTasks.length})</h3>
+            {completedTasks.length === 0 ? (
+              <div className="flex h-24 items-center justify-center rounded-lg border-2 border-dashed border-gray-200 p-4 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                No completed tasks
               </div>
             ) : (
-              <div className="space-y-3">
-                {getTasksByStatus('completed').map(task => (
-                  <motion.div
-                    key={task.Id}
-                    initial={{ scale: 0.95, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0.95, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="rounded-lg bg-white p-4 shadow-soft dark:bg-gray-800"
-                  >
-                    {/* Task content - similar but with strikethrough */}
-                    <div className="mb-2 flex items-start justify-between">
-                      <h4 className="text-md font-medium text-gray-900 line-through dark:text-white">{task.title}</h4>
-                      <div className="flex items-center space-x-1">
-                        <button
-                          onClick={() => handleDeleteTask(task.Id)}
-                          className="rounded p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-                          aria-label="Delete task"
-                        >
-                          <TrashIcon className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                    
-                    {/* Task actions */}
-                    <div className="flex justify-start">
+              <div className="space-y-2">
+                {completedTasks.map(task => (
+                  <div key={task.Id}>
+                    <TaskCard task={task} />
+                    <div className="mt-2 flex justify-start">
                       <button
-                        onClick={() => handleUpdateTaskStatus(task.Id, 'in-progress')}
-                        className="text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                        onClick={() => handleStatusChange(task.Id, 'in-progress')}
+                        className="text-xs text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300"
+                        disabled={isMoving}
                       >
-                        Move to In Progress
+                        ← Move to In Progress
                       </button>
                     </div>
-                  </motion.div>
+                  </div>
                 ))}
               </div>
             )}
-          </AnimatePresence>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

@@ -1,243 +1,271 @@
 import { useState, useEffect } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useDispatch, useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
 import { format } from 'date-fns';
 import { getIcon } from '../utils/iconUtils';
+import { fetchTasks, deleteTask } from '../services/taskService';
 import { setTasks, setLoading, setError } from '../store/taskSlice';
-import { fetchTasks, updateTask, deleteTask } from '../services/taskService';
 
 const TaskList = ({ openTaskForm, filter }) => {
   const dispatch = useDispatch();
-  const { tasks, loading, error } = useSelector((state) => state.tasks);
-  const { isAuthenticated } = useSelector((state) => state.user);
+  const { tasks, loading } = useSelector((state) => state.tasks);
+  const [deletingTaskId, setDeletingTaskId] = useState(null);
+  const [sortConfig, setSortConfig] = useState({
+    key: 'dueDate',
+    direction: 'asc',
+  });
 
   // Icons
-  const CheckIcon = getIcon('Check');
-  const EditIcon = getIcon('Edit');
+  const PencilIcon = getIcon('Pencil');
   const TrashIcon = getIcon('Trash');
-  const CalendarIcon = getIcon('Calendar');
-  const TagIcon = getIcon('Tag');
-  const StarIcon = getIcon('Star');
+  const ChevronUpIcon = getIcon('ChevronUp');
+  const ChevronDownIcon = getIcon('ChevronDown');
+  const CheckIcon = getIcon('Check');
+  const ClockIcon = getIcon('Clock');
+  const FlagIcon = getIcon('Flag');
 
-  // Load tasks
+  // Fetch tasks
   useEffect(() => {
     const loadTasks = async () => {
-      if (!isAuthenticated) return;
-      
       try {
         dispatch(setLoading(true));
         const tasksData = await fetchTasks(filter);
         dispatch(setTasks(tasksData));
       } catch (error) {
-        console.error("Failed to load tasks:", error);
-        dispatch(setError(error.message || "Failed to load tasks"));
-        toast.error("Failed to load tasks: " + (error.message || "Unknown error"));
+        dispatch(setError(error.message));
+        toast.error(`Failed to load tasks: ${error.message}`);
+      } finally {
+        dispatch(setLoading(false));
       }
     };
-    
+
     loadTasks();
-  }, [dispatch, isAuthenticated, filter]);
+  }, [dispatch, filter]);
 
-  // Function to update task status
-  const handleUpdateTaskStatus = async (taskId, newStatus) => {
-    try {
-      const taskToUpdate = tasks.find(t => t.Id === taskId);
-      if (!taskToUpdate) return;
-      
-      const updatedTask = await updateTask(taskId, { ...taskToUpdate, status: newStatus });
-      
-      // Update local state with the result
-      const updatedTasks = tasks.map(task => 
-        task.Id === taskId ? updatedTask : task
-      );
-      
-      dispatch(setTasks(updatedTasks));
-      toast.success(`Task moved to ${newStatus.replace('-', ' ')}`);
-    } catch (error) {
-      toast.error("Failed to update task: " + (error.message || "Unknown error"));
-    }
-  };
-
-  // Function to delete a task
+  // Handle task deletion
   const handleDeleteTask = async (taskId) => {
     try {
+      setDeletingTaskId(taskId);
       await deleteTask(taskId);
-      
-      // Update local state
-      const filteredTasks = tasks.filter(task => task.Id !== taskId);
-      dispatch(setTasks(filteredTasks));
-      toast.success("Task deleted successfully");
+      dispatch(setTasks(tasks.filter(task => task.Id !== taskId)));
+      toast.success('Task deleted successfully');
     } catch (error) {
-      toast.error("Failed to delete task: " + (error.message || "Unknown error"));
+      toast.error(`Failed to delete task: ${error.message}`);
+    } finally {
+      setDeletingTaskId(null);
     }
   };
 
-  // Priority color classes
-  const priorityColors = {
-    low: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-    medium: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
-    high: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-  };
-  
-  // Status color classes
-  const statusColors = {
-    todo: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300',
-    'in-progress': 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-    completed: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+  // Sort tasks
+  const requestSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center p-8">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
+  const getSortedTasks = () => {
+    const sortableTasks = [...tasks];
+    if (sortConfig.key) {
+      sortableTasks.sort((a, b) => {
+        let aValue = a[sortConfig.key];
+        let bValue = b[sortConfig.key];
+        
+        // Handle date comparison
+        if (sortConfig.key === 'dueDate') {
+          aValue = aValue ? new Date(aValue) : new Date(0);
+          bValue = bValue ? new Date(bValue) : new Date(0);
+        }
+        
+        if (aValue < bValue) {
+          return sortConfig.direction === 'asc' ? -1 : 1;
+        }
+        if (aValue > bValue) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+    return sortableTasks;
+  };
 
-  if (error) {
+  // Helper for status badges
+  const getStatusBadge = (status) => {
+    let color = '';
+    let icon = null;
+    
+    switch (status) {
+      case 'todo':
+        color = 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
+        icon = <ClockIcon className="mr-1 h-3 w-3" />;
+        break;
+      case 'in-progress':
+        color = 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300';
+        icon = <ClockIcon className="mr-1 h-3 w-3" />;
+        break;
+      case 'completed':
+        color = 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
+        icon = <CheckIcon className="mr-1 h-3 w-3" />;
+        break;
+      default:
+        color = 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+    }
+    
     return (
-      <div className="p-4 text-center">
-        <p className="text-red-500 dark:text-red-400 mb-4">{error}</p>
-        <button 
-          onClick={() => dispatch(fetchTasks(filter))}
-          className="btn btn-primary"
-        >
-          Try Again
-        </button>
-      </div>
+      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${color}`}>
+        {icon}
+        {status === 'todo' ? 'To Do' : 
+         status === 'in-progress' ? 'In Progress' : 
+         status === 'completed' ? 'Completed' : status}
+      </span>
     );
-  }
+  };
 
-  if (!tasks || tasks.length === 0) {
+  // Helper for priority badges
+  const getPriorityBadge = (priority) => {
+    let color = '';
+    
+    switch (priority) {
+      case 'high':
+        color = 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
+        break;
+      case 'medium':
+        color = 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300';
+        break;
+      case 'low':
+        color = 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+        break;
+      default:
+        color = 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+    }
+    
     return (
-      <div className="flex h-48 items-center justify-center rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700">
-        <div className="text-center">
-          <p className="text-lg font-medium text-gray-600 dark:text-gray-400 mb-4">No tasks found</p>
-          <button
-            onClick={() => openTaskForm()}
-            className="btn btn-primary"
-          >
-            Create Your First Task
-          </button>
-        </div>
-      </div>
+      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${color}`}>
+        <FlagIcon className="mr-1 h-3 w-3" />
+        {priority.charAt(0).toUpperCase() + priority.slice(1)}
+      </span>
     );
-  }
+  };
+
+  const sortedTasks = getSortedTasks();
 
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-      <div className="overflow-x-auto">
+    <div className="mt-6 overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+      {loading && tasks.length === 0 ? (
+        <div className="flex items-center justify-center p-8">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+        </div>
+      ) : (
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-900/50">
+          <thead className="bg-gray-50 dark:bg-gray-700">
             <tr>
-              <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 dark:text-white sm:pl-6">Task</th>
-              <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Status</th>
-              <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Priority</th>
-              <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Due Date</th>
-              <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-6">
-                <span className="sr-only">Actions</span>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-300 cursor-pointer"
+                onClick={() => requestSort('title')}
+              >
+                <div className="flex items-center">
+                  Title
+                  {sortConfig.key === 'title' && (
+                    sortConfig.direction === 'asc' ? 
+                    <ChevronUpIcon className="ml-1 h-4 w-4" /> : 
+                    <ChevronDownIcon className="ml-1 h-4 w-4" />
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-300 cursor-pointer"
+                onClick={() => requestSort('status')}
+              >
+                <div className="flex items-center">
+                  Status
+                  {sortConfig.key === 'status' && (
+                    sortConfig.direction === 'asc' ? 
+                    <ChevronUpIcon className="ml-1 h-4 w-4" /> : 
+                    <ChevronDownIcon className="ml-1 h-4 w-4" />
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-300 cursor-pointer"
+                onClick={() => requestSort('priority')}
+              >
+                <div className="flex items-center">
+                  Priority
+                  {sortConfig.key === 'priority' && (
+                    sortConfig.direction === 'asc' ? 
+                    <ChevronUpIcon className="ml-1 h-4 w-4" /> : 
+                    <ChevronDownIcon className="ml-1 h-4 w-4" />
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-300 cursor-pointer"
+                onClick={() => requestSort('dueDate')}
+              >
+                <div className="flex items-center">
+                  Due Date
+                  {sortConfig.key === 'dueDate' && (
+                    sortConfig.direction === 'asc' ? 
+                    <ChevronUpIcon className="ml-1 h-4 w-4" /> : 
+                    <ChevronDownIcon className="ml-1 h-4 w-4" />
+                  )}
+                </div>
+              </th>
+              <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                Actions
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-            {tasks.map(task => (
-              <tr key={task.Id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                <td className="whitespace-normal py-4 pl-4 pr-3 text-sm sm:pl-6">
-                  <div className="max-w-xs">
-                    <div className="font-medium text-gray-900 dark:text-white">{task.title}</div>
-                    {task.description && (
-                      <div className="mt-1 truncate text-gray-500 dark:text-gray-400">
-                        {task.description.length > 60
-                          ? `${task.description.substring(0, 60)}...`
-                          : task.description}
-                      </div>
-                    )}
-                    
-                    {task.tags && task.tags.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {typeof task.tags === 'string' 
-                          ? task.tags.split(',').map(tag => (
-                              <span 
-                                key={tag} 
-                                className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-800 dark:bg-gray-700 dark:text-gray-300"
-                              >
-                                {tag.trim()}
-                              </span>
-                            ))
-                          : Array.isArray(task.tags) && task.tags.map(tag => (
-                              <span 
-                                key={tag} 
-                                className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-800 dark:bg-gray-700 dark:text-gray-300"
-                              >
-                                {tag}
-                              </span>
-                            ))
-                        }
-                      </div>
-                    )}
-                  </div>
+          <tbody className="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
+            {sortedTasks.length === 0 ? (
+              <tr>
+                <td colSpan="5" className="px-6 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                  No tasks found
                 </td>
-                <td className="whitespace-nowrap px-3 py-4 text-sm">
-                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
-                    statusColors[task.status]
-                  }`}>
-                    {task.status === 'todo' ? 'To Do' : 
-                     task.status === 'in-progress' ? 'In Progress' : 
-                     'Completed'}
-                  </span>
-                </td>
-                <td className="whitespace-nowrap px-3 py-4 text-sm">
-                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
-                    priorityColors[task.priority]
-                  }`}>
-                    {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
-                  </span>
-                </td>
-                <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">
-                  {task.dueDate ? (
-                    <div className="flex items-center">
-                      <CalendarIcon className="mr-1 h-4 w-4" />
-                      {task.dueDate}
+              </tr>
+            ) : (
+              sortedTasks.map((task) => (
+                <tr key={task.Id} className={deletingTaskId === task.Id ? 'opacity-50' : ''}>
+                  <td className="whitespace-nowrap px-6 py-4">
+                    <div className="text-sm font-medium text-gray-900 dark:text-white">{task.title}</div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                      {task.description && task.description.length > 50 
+                        ? `${task.description.substring(0, 50)}...` 
+                        : task.description}
                     </div>
-                  ) : (
-                    <span>Not set</span>
-                  )}
-                </td>
-                <td className="whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
-                  <div className="flex justify-end gap-2">
-                    {task.status !== 'completed' && (
-                      <button
-                        onClick={() => handleUpdateTaskStatus(task.Id, 'completed')}
-                        className="rounded p-1 text-green-600 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-900/30"
-                        aria-label="Mark as completed"
-                      >
-                        <CheckIcon className="h-4 w-4" />
-                      </button>
-                    )}
-                    
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4">
+                    {getStatusBadge(task.status)}
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4">
+                    {getPriorityBadge(task.priority)}
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                    {task.dueDate ? format(new Date(task.dueDate), 'MMM d, yyyy') : '-'}
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-medium">
                     <button
                       onClick={() => openTaskForm(task)}
-                      className="rounded p-1 text-indigo-600 hover:bg-indigo-100 dark:text-indigo-400 dark:hover:bg-indigo-900/30"
-                      aria-label="Edit task"
+                      className="mr-2 text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300"
+                      disabled={deletingTaskId === task.Id}
                     >
-                      <EditIcon className="h-4 w-4" />
+                      <PencilIcon className="h-4 w-4" />
                     </button>
-                    
                     <button
                       onClick={() => handleDeleteTask(task.Id)}
-                      className="rounded p-1 text-red-600 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-900/30"
-                      aria-label="Delete task"
+                      className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                      disabled={deletingTaskId === task.Id}
                     >
                       <TrashIcon className="h-4 w-4" />
                     </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
-      </div>
+      )}
     </div>
   );
 };

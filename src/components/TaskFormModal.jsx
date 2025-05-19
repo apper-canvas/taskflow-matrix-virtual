@@ -1,326 +1,328 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { useSelector, useDispatch } from 'react-redux';
+import { useDispatch } from 'react-redux';
+import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-toastify';
+import { format } from 'date-fns';
 import { getIcon } from '../utils/iconUtils';
-import { addTask, updateTask as updateTaskAction } from '../store/taskSlice';
 import { createTask, updateTask } from '../services/taskService';
+import { addTask, updateTask as updateTaskInStore } from '../store/taskSlice';
 
-const TaskFormModal = ({ isOpen, onClose, task = null }) => {
+const TaskFormModal = ({ isOpen, onClose, task }) => {
   const dispatch = useDispatch();
-  const { isAuthenticated } = useSelector((state) => state.user);
-  const [loading, setLoading] = useState(false);
-  const [formError, setFormError] = useState('');
+  const isEditMode = !!task;
   
+  // Form state
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     status: 'todo',
     priority: 'medium',
     dueDate: '',
-    tags: []
+    tags: ''
   });
   
-  const [tagInput, setTagInput] = useState('');
+  // Loading state
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Validation state
+  const [errors, setErrors] = useState({});
   
   // Icons
   const XIcon = getIcon('X');
   
-  // Initialize form with task data when editing
+  // Initialize form with task data if in edit mode
   useEffect(() => {
-    if (task) {
-      const processedTags = task.tags && typeof task.tags === 'string' 
-        ? task.tags.split(',').map(tag => tag.trim()) 
-        : task.tags || [];
-      
+    if (isEditMode && task) {
       setFormData({
         title: task.title || '',
         description: task.description || '',
         status: task.status || 'todo',
         priority: task.priority || 'medium',
-        dueDate: task.dueDate || '',
-        tags: processedTags
+        dueDate: task.dueDate ? format(new Date(task.dueDate), 'yyyy-MM-dd') : '',
+        tags: task.tags || ''
       });
     } else {
+      // Reset form when opening in create mode
       setFormData({
         title: '',
         description: '',
         status: 'todo',
         priority: 'medium',
         dueDate: '',
-        tags: []
+        tags: ''
       });
     }
-    
-    setTagInput('');
-    setFormError('');
-  }, [task, isOpen]);
+    // Reset errors
+    setErrors({});
+  }, [isOpen, task, isEditMode]);
   
-  const handleInputChange = (e) => {
+  // Handle input changes
+  const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-  
-  const handleTagKeyPress = (e) => {
-    if (e.key === 'Enter' && tagInput.trim()) {
-      e.preventDefault();
-      if (!formData.tags.includes(tagInput.trim())) {
-        setFormData(prev => ({
-          ...prev,
-          tags: [...prev.tags, tagInput.trim()]
-        }));
-      }
-      setTagInput('');
-    }
-  };
-  
-  const removeTag = (tagToRemove) => {
     setFormData(prev => ({
       ...prev,
-      tags: prev.tags.filter(tag => tag !== tagToRemove)
+      [name]: value
     }));
+    
+    // Clear error when field is updated
+    if (errors[name]) {
+      setErrors(prev => ({
+        ...prev,
+        [name]: null
+      }));
+    }
   };
   
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setFormError('');
+  // Validate form
+  const validateForm = () => {
+    const newErrors = {};
     
     if (!formData.title.trim()) {
-      setFormError('Please enter a task title');
+      newErrors.title = 'Title is required';
+    }
+    
+    if (!formData.status) {
+      newErrors.status = 'Status is required';
+    }
+    
+    if (!formData.priority) {
+      newErrors.priority = 'Priority is required';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+  
+  // Handle form submission
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      toast.error('Please fix the errors in the form');
       return;
     }
     
-    if (!isAuthenticated) {
-      setFormError('You need to be logged in to create or edit tasks');
-      return;
-    }
-    
-    setLoading(true);
+    setIsSubmitting(true);
     
     try {
-      // Format tags for storage
-      const tagsForStorage = Array.isArray(formData.tags) ? formData.tags.join(',') : formData.tags;
+      // Format date properly for API
+      const formattedData = {
+        ...formData,
+        dueDate: formData.dueDate || null
+      };
       
-      if (task) {
+      if (isEditMode) {
         // Update existing task
-        const updatedTask = await updateTask(task.Id, {
-          ...formData,
-          tags: tagsForStorage
-        });
-        
-        dispatch(updateTaskAction(updatedTask));
+        const updatedTask = await updateTask(task.Id, formattedData);
+        dispatch(updateTaskInStore(updatedTask));
         toast.success('Task updated successfully');
       } else {
         // Create new task
-        const newTask = await createTask({
-          ...formData,
-          tags: tagsForStorage
-        });
-        
+        const newTask = await createTask(formattedData);
         dispatch(addTask(newTask));
         toast.success('Task created successfully');
       }
       
+      // Close modal on success
       onClose();
     } catch (error) {
-      console.error("Task operation failed:", error);
-      setFormError(error.message || 'Failed to save the task');
-      toast.error(error.message || 'Failed to save the task');
+      toast.error(`Failed to ${isEditMode ? 'update' : 'create'} task: ${error.message}`);
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
   
-  if (!isOpen) return null;
-  
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex min-h-screen items-end justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-        <div 
-          className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity dark:bg-gray-900 dark:bg-opacity-75" 
-          onClick={onClose}
-        />
-        
-        <span className="hidden sm:inline-block sm:h-screen sm:align-middle" aria-hidden="true">&#8203;</span>
-        
-        <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.9, opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className="inline-block w-full max-w-md transform overflow-hidden rounded-lg bg-white p-6 text-left align-bottom shadow-xl transition-all dark:bg-gray-800 sm:my-8 sm:align-middle sm:max-w-lg sm:p-6"
-        >
-          <div className="flex items-center justify-between pb-3">
-            <h3 className="text-lg font-medium leading-6 text-gray-900 dark:text-white">
-              {task ? 'Edit Task' : 'Add New Task'}
-            </h3>
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto">
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+            onClick={onClose}
+          />
+          
+          {/* Modal */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
+            className="relative w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800 sm:my-8"
+          >
+            {/* Close button */}
             <button
               onClick={onClose}
-              className="rounded-md bg-white text-gray-400 hover:text-gray-500 focus:outline-none dark:bg-gray-800 dark:text-gray-500 dark:hover:text-gray-400"
+              className="absolute right-4 top-4 rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-500 dark:hover:bg-gray-700"
             >
-              <XIcon className="h-5 w-5" />
+              <XIcon className="h-6 w-6" />
             </button>
-          </div>
-          
-          {formError && (
-            <div className="mb-4 rounded-md bg-red-50 p-3 dark:bg-red-900/30">
-              <p className="text-sm text-red-700 dark:text-red-400">{formError}</p>
-            </div>
-          )}
-          
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="title" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Title *
-              </label>
-              <input
-                type="text"
-                id="title"
-                name="title"
-                value={formData.title}
-                onChange={handleInputChange}
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-primary focus:outline-none focus:ring-primary dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm"
-                placeholder="Task title"
-                required
-              />
-            </div>
             
-            <div>
-              <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Description
-              </label>
-              <textarea
-                id="description"
-                name="description"
-                value={formData.description}
-                onChange={handleInputChange}
-                rows="3"
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-primary focus:outline-none focus:ring-primary dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm"
-                placeholder="Task description"
-              />
-            </div>
-            
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label htmlFor="status" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Status
-                </label>
-                <select
-                  id="status"
-                  name="status"
-                  value={formData.status}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-primary focus:outline-none focus:ring-primary dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm"
-                >
-                  <option value="todo">To Do</option>
-                  <option value="in-progress">In Progress</option>
-                  <option value="completed">Completed</option>
-                </select>
-              </div>
+            {/* Form */}
+            <div className="mt-3 sm:mt-0">
+              <h3 className="mb-4 text-lg font-medium text-gray-900 dark:text-white">
+                {isEditMode ? 'Edit Task' : 'Create New Task'}
+              </h3>
               
-              <div>
-                <label htmlFor="priority" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Priority
-                </label>
-                <select
-                  id="priority"
-                  name="priority"
-                  value={formData.priority}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-primary focus:outline-none focus:ring-primary dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm"
-                >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </select>
-              </div>
-            </div>
-            
-            <div>
-              <label htmlFor="dueDate" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Due Date
-              </label>
-              <input
-                type="date"
-                id="dueDate"
-                name="dueDate"
-                value={formData.dueDate}
-                onChange={handleInputChange}
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-primary focus:outline-none focus:ring-primary dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm"
-              />
-            </div>
-            
-            <div>
-              <label htmlFor="tags" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Tags
-              </label>
-              <div className="mt-1 flex rounded-md shadow-sm">
-                <input
-                  type="text"
-                  id="tags"
-                  value={tagInput}
-                  onChange={(e) => setTagInput(e.target.value)}
-                  onKeyDown={handleTagKeyPress}
-                  className="block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-primary focus:outline-none focus:ring-primary dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm"
-                  placeholder="Add tag and press Enter"
-                />
-              </div>
-              
-              {formData.tags.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {formData.tags.map(tag => (
-                    <span 
-                      key={tag} 
-                      className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800 dark:bg-gray-700 dark:text-gray-300"
-                    >
-                      {tag}
-                      <button
-                        type="button"
-                        onClick={() => removeTag(tag)}
-                        className="ml-1.5 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-500 dark:text-gray-500 dark:hover:bg-gray-600 dark:hover:text-gray-400"
-                      >
-                        <XIcon className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))}
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Title */}
+                <div>
+                  <label htmlFor="title" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Title <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="title"
+                    name="title"
+                    value={formData.title}
+                    onChange={handleChange}
+                    className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm ${
+                      errors.title ? 'border-red-500' : ''
+                    }`}
+                    disabled={isSubmitting}
+                  />
+                  {errors.title && (
+                    <p className="mt-1 text-xs text-red-500">{errors.title}</p>
+                  )}
                 </div>
-              )}
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Press Enter after each tag to add it
-              </p>
+                
+                {/* Description */}
+                <div>
+                  <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Description
+                  </label>
+                  <textarea
+                    id="description"
+                    name="description"
+                    rows="3"
+                    value={formData.description}
+                    onChange={handleChange}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm"
+                    disabled={isSubmitting}
+                  />
+                </div>
+                
+                {/* Status */}
+                <div>
+                  <label htmlFor="status" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Status <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    id="status"
+                    name="status"
+                    value={formData.status}
+                    onChange={handleChange}
+                    className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm ${
+                      errors.status ? 'border-red-500' : ''
+                    }`}
+                    disabled={isSubmitting}
+                  >
+                    <option value="todo">To Do</option>
+                    <option value="in-progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                  {errors.status && (
+                    <p className="mt-1 text-xs text-red-500">{errors.status}</p>
+                  )}
+                </div>
+                
+                {/* Priority */}
+                <div>
+                  <label htmlFor="priority" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Priority <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    id="priority"
+                    name="priority"
+                    value={formData.priority}
+                    onChange={handleChange}
+                    className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm ${
+                      errors.priority ? 'border-red-500' : ''
+                    }`}
+                    disabled={isSubmitting}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                  {errors.priority && (
+                    <p className="mt-1 text-xs text-red-500">{errors.priority}</p>
+                  )}
+                </div>
+                
+                {/* Due Date */}
+                <div>
+                  <label htmlFor="dueDate" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Due Date
+                  </label>
+                  <input
+                    type="date"
+                    id="dueDate"
+                    name="dueDate"
+                    value={formData.dueDate}
+                    onChange={handleChange}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm"
+                    disabled={isSubmitting}
+                  />
+                </div>
+                
+                {/* Tags */}
+                <div>
+                  <label htmlFor="tags" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Tags (comma separated)
+                  </label>
+                  <input
+                    type="text"
+                    id="tags"
+                    name="tags"
+                    value={formData.tags}
+                    onChange={handleChange}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm"
+                    placeholder="work,meeting,design"
+                    disabled={isSubmitting}
+                  />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Available tags: work, planning, meeting, team, design, development, reporting, analysis
+                  </p>
+                </div>
+                
+                {/* Actions */}
+                <div className="mt-5 flex justify-end space-x-3">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                    disabled={isSubmitting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="inline-flex justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-700 dark:hover:bg-indigo-800"
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <svg className="mr-2 h-4 w-4 animate-spin" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        {isEditMode ? 'Updating...' : 'Creating...'}
+                      </>
+                    ) : (
+                      isEditMode ? 'Update Task' : 'Create Task'
+                    )}
+                  </button>
+                </div>
+              </form>
             </div>
-            
-            <div className="mt-5 flex justify-end gap-2 sm:mt-6">
-              <button
-                type="button"
-                onClick={onClose}
-                className="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 dark:focus:ring-offset-gray-800"
-                disabled={loading}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="inline-flex justify-center rounded-md border border-transparent bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 dark:focus:ring-offset-gray-800"
-                disabled={loading}
-              >
-                {loading ? (
-                  <>
-                    <svg className="mr-2 h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    {task ? 'Updating...' : 'Creating...'}
-                  </>
-                ) : (
-                  task ? 'Update Task' : 'Add Task'
-                )}
-              </button>
-            </div>
-          </form>
-        </motion.div>
-      </div>
-    </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
   );
 };
 
